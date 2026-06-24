@@ -1,0 +1,18 @@
+# Grafana Dashboard Provisioning — Week 8
+# =========================================
+# Tells Grafana where to find dashboard JSON files.
+# Dashboards are loaded from disk on startup — no manual import needed.
+
+apiVersion: 1
+
+providers:
+  - name: "ML Observability"
+    orgId: 1
+    folder: "MLOps Course"
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

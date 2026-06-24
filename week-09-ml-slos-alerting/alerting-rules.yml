@@ -1,0 +1,448 @@
+# =============================================================================
+# ML Model Service — Prometheus Alerting Rules
+# =============================================================================
+#
+# PrometheusRule CRD format — apply to a k8s cluster with Prometheus Operator.
+#
+# ALERTING PHILOSOPHY:
+# --------------------
+# 1. Alert on SYMPTOMS (prediction quality degradation), not CAUSES (single feature drift)
+# 2. Use multi-window multi-burn-rate (MWMBR) for SLO-based alerts
+# 3. Separate LEADING indicators (drift, freshness) from LAGGING indicators (accuracy drop)
+# 4. Leading indicators → tickets/warnings; lagging indicators → pages
+# 5. Every alert must be ACTIONABLE — maps to a runbook entry with clear next steps
+# 6. Aggregate signals — one alert for "model degraded" not 50 alerts for 50 features
+# 7. Suppress during known events (retraining, maintenance, data backfills)
+#
+# BURN-RATE REFERENCE (30-day window):
+# - 14.4x burn rate = budget exhausted in ~2 days → PAGE (5m short / 1h long window)
+# - 6x burn rate = budget exhausted in ~5 days → TICKET (30m short / 6h long window)
+# - 3x burn rate = budget exhausted in ~10 days → WARNING (2h short / 1d long window)
+# - 1x burn rate = on track to exactly exhaust budget → WATCH (6h short / 3d long window)
+#
+# =============================================================================
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ml-model-slo-alerts
+  namespace: ml-platform
+  labels:
+    app: fraud-detection-model
+    team: ml-platform
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    # =========================================================================
+    # GROUP 1: Availability Burn-Rate Alerts
+    # =========================================================================
+    # Standard SLO burn-rate alerting. You've written these before.
+    # The model endpoint is just another HTTP service from this perspective.
+    # =========================================================================
+    - name: ml-model.availability.burn-rate
+      interval: 30s
+      rules:
+        # ---------------------------------------------------------------------
+        # CRITICAL: 14.4x burn rate — budget exhausted in ~2 days
+        # Short window (5m) AND long window (1h) must both fire
+        # This catches fast, sustained outages
+        # ---------------------------------------------------------------------
+        - alert: ModelAvailabilityBurnRateCritical
+          expr: |
+            (
+              1 - (
+                sum(rate(http_requests_total{service="fraud-model", code=~"2.."}[5m]))
+                /
+                sum(rate(http_requests_total{service="fraud-model", code!~"4.."}[5m]))
+              )
+            ) > (14.4 * 0.001)
+            AND
+            (
+              1 - (
+                sum(rate(http_requests_total{service="fraud-model", code=~"2.."}[1h]))
+                /
+                sum(rate(http_requests_total{service="fraud-model", code!~"4.."}[1h]))
+              )
+            ) > (14.4 * 0.001)
+          for: 2m
+          labels:
+            severity: critical
+            team: ml-platform
+            slo: model-service-availability
+            category: availability
+          annotations:
+            summary: "Model service availability burning error budget at 14.4x rate"
+            description: |
+              The fraud detection model service is returning errors at a rate that will
+              exhaust the 99.9% availability error budget within ~2 days.
+              Current 5m error rate: {{ $value | humanizePercentage }}
+            runbook_url: "https://runbooks.internal/ml/availability-critical"
+            dashboard: "https://grafana.internal/d/ml-slos/model-slos"
+
+        # ---------------------------------------------------------------------
+        # WARNING: 6x burn rate — budget exhausted in ~5 days
+        # Short window (30m) AND long window (6h)
+        # This catches slower degradations that still need attention within shift
+        # ---------------------------------------------------------------------
+        - alert: ModelAvailabilityBurnRateWarning
+          expr: |
+            (
+              1 - (
+                sum(rate(http_requests_total{service="fraud-model", code=~"2.."}[30m]))
+                /
+                sum(rate(http_requests_total{service="fraud-model", code!~"4.."}[30m]))
+              )
+            ) > (6 * 0.001)
+            AND
+            (
+              1 - (
+                sum(rate(http_requests_total{service="fraud-model", code=~"2.."}[6h]))
+                /
+                sum(rate(http_requests_total{service="fraud-model", code!~"4.."}[6h]))
+              )
+            ) > (6 * 0.001)
+          for: 5m
+          labels:
+            severity: warning
+            team: ml-platform
+            slo: model-service-availability
+            category: availability
+          annotations:
+            summary: "Model service availability burning error budget at 6x rate"
+            description: |
+              Sustained error rate will exhaust 99.9% availability budget within ~5 days.
+              Investigate recent deployments, resource pressure, or dependency failures.
+            runbook_url: "https://runbooks.internal/ml/availability-warning"
+
+    # =========================================================================
+    # GROUP 2: Latency Burn-Rate Alerts
+    # =========================================================================
+    # Same MWMBR pattern, but measuring latency threshold violations.
+    # "What % of requests exceed our 200ms p99 target?"
+    # =========================================================================
+    - name: ml-model.latency.burn-rate
+      interval: 30s
+      rules:
+        - alert: ModelLatencyBurnRateCritical
+          expr: |
+            (
+              1 - (
+                sum(rate(inference_duration_seconds_bucket{service="fraud-model", le="0.2"}[5m]))
+                /
+                sum(rate(inference_duration_seconds_count{service="fraud-model"}[5m]))
+              )
+            ) > (14.4 * 0.01)
+            AND
+            (
+              1 - (
+                sum(rate(inference_duration_seconds_bucket{service="fraud-model", le="0.2"}[1h]))
+                /
+                sum(rate(inference_duration_seconds_count{service="fraud-model"}[1h]))
+              )
+            ) > (14.4 * 0.01)
+          for: 2m
+          labels:
+            severity: critical
+            team: ml-platform
+            slo: model-inference-latency
+            category: latency
+          annotations:
+            summary: "Model inference latency burning error budget at 14.4x rate"
+            description: |
+              Inference latency p99 exceeding 200ms target at a rate that will
+              exhaust the error budget within ~2 days. Transactions may be timing out.
+            runbook_url: "https://runbooks.internal/ml/latency-critical"
+
+        - alert: ModelLatencyBurnRateWarning
+          expr: |
+            (
+              1 - (
+                sum(rate(inference_duration_seconds_bucket{service="fraud-model", le="0.2"}[30m]))
+                /
+                sum(rate(inference_duration_seconds_count{service="fraud-model"}[30m]))
+              )
+            ) > (6 * 0.01)
+            AND
+            (
+              1 - (
+                sum(rate(inference_duration_seconds_bucket{service="fraud-model", le="0.2"}[6h]))
+                /
+                sum(rate(inference_duration_seconds_count{service="fraud-model"}[6h]))
+              )
+            ) > (6 * 0.01)
+          for: 5m
+          labels:
+            severity: warning
+            team: ml-platform
+            slo: model-inference-latency
+            category: latency
+          annotations:
+            summary: "Model inference latency burning error budget at 6x rate"
+            description: |
+              Sustained latency violations will exhaust budget within ~5 days.
+              Check model complexity, resource contention, feature store latency.
+            runbook_url: "https://runbooks.internal/ml/latency-warning"
+
+    # =========================================================================
+    # GROUP 3: Feature Drift Alerts
+    # =========================================================================
+    # LEADING INDICATOR — drift predicts accuracy drops before they happen.
+    #
+    # IMPORTANT: We alert on AGGREGATED drift (max across features or count of
+    # drifting features), NOT on individual features. Individual feature drift
+    # is dashboard-level visibility, not alert-level noise.
+    #
+    # The critical insight: drift is noisy. A single feature can spike due to
+    # legitimate distribution changes (new product launch, seasonal patterns).
+    # We only page when MULTIPLE features drift (systemic) or drift is extreme.
+    # =========================================================================
+    - name: ml-model.drift
+      interval: 60s  # Drift is evaluated less frequently — not a real-time signal
+      rules:
+        # ---------------------------------------------------------------------
+        # WARNING: Sustained single-feature drift above threshold
+        # Action: Create ticket, investigate in business hours
+        # NOT a page — this is a leading indicator
+        # ---------------------------------------------------------------------
+        - alert: ModelFeatureDriftWarning
+          expr: |
+            max(feature_drift_score{model="fraud-detection"}) > 0.2
+          for: 2h  # Must persist for 2 hours — filters transient spikes
+          labels:
+            severity: warning
+            team: ml-engineering
+            slo: feature-drift-score
+            category: drift
+            indicator_type: leading
+          annotations:
+            summary: "Feature drift detected — sustained above threshold for 2h"
+            description: |
+              At least one monitored feature has a drift score (PSI/KS) above 0.2
+              for 2+ hours. Feature: {{ $labels.feature_name }}, Score: {{ $value }}
+              This is a LEADING indicator — model accuracy may degrade soon.
+            runbook_url: "https://runbooks.internal/ml/drift-warning"
+            action: "Investigate drift source. Check data pipeline changes. Assess impact."
+
+        # ---------------------------------------------------------------------
+        # CRITICAL: Multiple features drifting OR extreme single-feature drift
+        # Action: Page ML on-call — systemic issue likely
+        # Multiple features drifting simultaneously = upstream data problem
+        # ---------------------------------------------------------------------
+        - alert: ModelFeatureDriftCritical
+          expr: |
+            count(feature_drift_score{model="fraud-detection"} > 0.2) >= 3
+            OR
+            max(feature_drift_score{model="fraud-detection"}) > 0.4
+          for: 1h
+          labels:
+            severity: critical
+            team: ml-engineering
+            slo: feature-drift-score
+            category: drift
+            indicator_type: leading
+          annotations:
+            summary: "Critical feature drift — multiple features or extreme drift detected"
+            description: |
+              Either 3+ features are drifting above threshold, or one feature has
+              extreme drift (>0.4). This likely indicates a systemic upstream data issue.
+              Number of drifting features: {{ $value }}
+            runbook_url: "https://runbooks.internal/ml/drift-critical"
+            action: "Page ML on-call. Check data pipeline health. Prepare for retraining."
+
+    # =========================================================================
+    # GROUP 4: Prediction Distribution Shift
+    # =========================================================================
+    # Monitors the OUTPUT distribution of predictions, not input features.
+    # If the model suddenly predicts "fraud" 50% of the time (vs baseline 5%),
+    # something is very wrong — even if individual features look okay.
+    #
+    # This catches issues that per-feature drift might miss:
+    # - Feature interactions changing
+    # - Model serving wrong version
+    # - Input preprocessing bugs that don't show in raw feature stats
+    # =========================================================================
+    - name: ml-model.prediction-distribution
+      interval: 60s
+      rules:
+        - alert: PredictionDistributionShiftWarning
+          expr: |
+            abs(
+              avg_over_time(prediction_score_mean{model="fraud-detection"}[1h])
+              -
+              model_baseline_prediction_mean{model="fraud-detection"}
+            ) / model_baseline_prediction_stddev{model="fraud-detection"} > 2
+          for: 2h
+          labels:
+            severity: warning
+            team: ml-engineering
+            category: prediction_shift
+            indicator_type: leading
+          annotations:
+            summary: "Prediction distribution shifted >2 standard deviations from baseline"
+            description: |
+              The model's average prediction score has shifted significantly from the
+              baseline established during validation. This may indicate the model is
+              behaving differently than expected on current production data.
+              Deviation: {{ $value }} standard deviations from baseline mean.
+            runbook_url: "https://runbooks.internal/ml/prediction-shift"
+
+        - alert: PredictionDistributionShiftCritical
+          expr: |
+            abs(
+              avg_over_time(prediction_score_mean{model="fraud-detection"}[30m])
+              -
+              model_baseline_prediction_mean{model="fraud-detection"}
+            ) / model_baseline_prediction_stddev{model="fraud-detection"} > 4
+          for: 30m
+          labels:
+            severity: critical
+            team: ml-engineering
+            category: prediction_shift
+            indicator_type: lagging  # At this severity, it's already impacting predictions
+          annotations:
+            summary: "CRITICAL prediction distribution shift — >4 std devs from baseline"
+            description: |
+              Extreme shift in prediction output distribution. The model may be serving
+              fundamentally wrong predictions. Potential causes: wrong model loaded,
+              feature pipeline broken, severe data corruption.
+            runbook_url: "https://runbooks.internal/ml/prediction-shift-critical"
+            action: "Verify model version. Check feature pipeline. Consider immediate rollback."
+
+    # =========================================================================
+    # GROUP 5: Data Quality Degradation
+    # =========================================================================
+    # Monitors the health of input data flowing into the model.
+    # If data quality degrades, predictions become unreliable regardless of
+    # whether the model itself is "working."
+    #
+    # Data quality issues are the #1 root cause of ML incidents. Catch them
+    # before they corrupt predictions.
+    # =========================================================================
+    - name: ml-model.data-quality
+      interval: 60s
+      rules:
+        - alert: DataQualityNullRateHigh
+          expr: |
+            sum(rate(feature_null_count_total{model="fraud-detection"}[15m]))
+            /
+            sum(rate(prediction_requests_total{model="fraud-detection"}[15m]))
+            > 0.05
+          for: 15m
+          labels:
+            severity: warning
+            team: ml-engineering
+            category: data_quality
+          annotations:
+            summary: "High null rate in model features — >5% of requests have null features"
+            description: |
+              More than 5% of inference requests contain null values in monitored features.
+              The model may be using imputed/default values, degrading prediction quality.
+              Null rate: {{ $value | humanizePercentage }}
+            runbook_url: "https://runbooks.internal/ml/data-quality-nulls"
+
+        - alert: DataQualitySchemaViolation
+          expr: |
+            sum(rate(feature_schema_violations_total{model="fraud-detection"}[15m]))
+            > 0
+          for: 10m
+          labels:
+            severity: critical
+            team: ml-engineering
+            category: data_quality
+          annotations:
+            summary: "Feature schema violations detected — model receiving unexpected data types"
+            description: |
+              The model is receiving features that violate the expected schema (wrong data
+              types, out-of-range values, unexpected categories). This likely indicates an
+              upstream data pipeline change that wasn't coordinated with the ML team.
+            runbook_url: "https://runbooks.internal/ml/data-quality-schema"
+            action: "Check recent upstream pipeline deployments. Validate feature store output."
+
+        - alert: DataQualityDistributionAnomaly
+          expr: |
+            count(
+              abs(feature_mean_current{model="fraud-detection"} - feature_mean_reference{model="fraud-detection"})
+              / feature_stddev_reference{model="fraud-detection"}
+              > 5
+            ) >= 2
+          for: 1h
+          labels:
+            severity: warning
+            team: ml-engineering
+            category: data_quality
+          annotations:
+            summary: "Multiple features showing extreme distribution anomalies"
+            description: |
+              Two or more features have current means that are >5 standard deviations from
+              their reference distributions. This exceeds normal drift — likely a data
+              pipeline bug or upstream system change.
+            runbook_url: "https://runbooks.internal/ml/data-quality-anomaly"
+
+    # =========================================================================
+    # GROUP 6: Model Staleness
+    # =========================================================================
+    # Tracks how long since the model was last retrained.
+    # In banking/fraud detection, stale models miss new attack patterns.
+    # This is the "data freshness SLO" expressed as an alert.
+    #
+    # Progressive alerting: info → warning → critical → breach
+    # Gives the team time to react before hitting the hard regulatory limit.
+    # =========================================================================
+    - name: ml-model.staleness
+      interval: 300s  # Check every 5 minutes — not time-critical
+      rules:
+        - alert: ModelStalenessWarning
+          expr: |
+            (time() - model_last_training_timestamp{model="fraud-detection"}) / 86400 > 25
+          for: 1h
+          labels:
+            severity: warning
+            team: ml-engineering
+            slo: training-data-freshness
+            category: staleness
+          annotations:
+            summary: "Model approaching staleness threshold — 25+ days since last training"
+            description: |
+              The fraud detection model was last trained {{ $value | humanizeDuration }} ago.
+              The SLO requires retraining within 30 days. 5 days remaining.
+              Verify the retraining pipeline is scheduled and unblocked.
+            runbook_url: "https://runbooks.internal/ml/staleness-warning"
+            action: "Verify retraining pipeline schedule. Check for blocked/failed runs."
+
+        - alert: ModelStalenessCritical
+          expr: |
+            (time() - model_last_training_timestamp{model="fraud-detection"}) / 86400 > 28
+          for: 1h
+          labels:
+            severity: critical
+            team: ml-engineering
+            slo: training-data-freshness
+            category: staleness
+          annotations:
+            summary: "CRITICAL — Model 28+ days since training, 2 days to SLO breach"
+            description: |
+              Model is 2 days from breaching the 30-day freshness SLO.
+              If retraining pipeline is broken, manual intervention required immediately.
+              Days since training: {{ $value }}
+            runbook_url: "https://runbooks.internal/ml/staleness-critical"
+            action: "Trigger manual retraining. Escalate if pipeline is broken."
+
+        - alert: ModelStalenessBreach
+          expr: |
+            (time() - model_last_training_timestamp{model="fraud-detection"}) / 86400 > 30
+          for: 0m  # Immediate — SLO is breached
+          labels:
+            severity: critical
+            team: ml-platform
+            slo: training-data-freshness
+            category: staleness
+            compliance: regulatory
+          annotations:
+            summary: "SLO BREACH — Model exceeds 30-day freshness limit"
+            description: |
+              The model has exceeded its maximum allowed age of 30 days.
+              This is a compliance/regulatory concern. Immediate action required.
+              Days since training: {{ $value }}
+            runbook_url: "https://runbooks.internal/ml/staleness-breach"
+            action: "Incident declared. Notify compliance. Retrain immediately or switch to fallback."

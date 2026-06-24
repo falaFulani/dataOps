@@ -1,0 +1,26 @@
+# =============================================================================
+# Model Service — ClusterIP Service
+# =============================================================================
+# Nothing ML-specific here. Standard ClusterIP service.
+# You've written this a thousand times.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: ml-serving
+  labels:
+    app: model-service
+    team: ml-platform
+    component: inference
+spec:
+  type: ClusterIP
+  selector:
+    app: model-service
+    version: v1
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

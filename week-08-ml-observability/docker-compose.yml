@@ -1,0 +1,110 @@
+# Week 8: ML Observability Stack
+# ================================
+# This runs the full observability stack locally:
+# - Model service (FastAPI with Prometheus metrics)
+# - Prometheus (scrapes the model service)
+# - Grafana (dashboards for both operational + ML metrics)
+#
+# Usage:
+#   docker compose up -d
+#   # Model service: http://localhost:8000
+#   # Prometheus:    http://localhost:9090
+#   # Grafana:       http://localhost:3000 (admin/admin)
+
+services:
+  # --------------------------------------------------------------------------
+  # Model Service
+  # --------------------------------------------------------------------------
+  # The FastAPI model service from Week 5, extended with custom Prometheus
+  # metrics for ML observability. Exposes /metrics endpoint that Prometheus
+  # scrapes alongside the standard /predict and /health endpoints.
+  model-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: model-service
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_NAME=iris-classifier
+      - MODEL_VERSION=1.0.0
+      - PROMETHEUS_METRICS_ENABLED=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ml-observability
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Prometheus
+  # --------------------------------------------------------------------------
+  # Scrapes the model service /metrics endpoint every 5s.
+  # Stores both operational metrics (latency, errors) and ML metrics
+  # (confidence, drift, quality) in the same TSDB.
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    depends_on:
+      model-service:
+        condition: service_healthy
+    networks:
+      - ml-observability
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Grafana
+  # --------------------------------------------------------------------------
+  # Pre-provisioned with:
+  # - Prometheus datasource (auto-configured)
+  # - ML Observability dashboard (both layers in one view)
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/ml-observability.json
+    volumes:
+      - ./grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ml-observability
+    restart: unless-stopped
+
+# --------------------------------------------------------------------------
+# Networks
+# --------------------------------------------------------------------------
+networks:
+  ml-observability:
+    driver: bridge
+    name: ml-observability
+
+# --------------------------------------------------------------------------
+# Volumes
+# --------------------------------------------------------------------------
+volumes:
+  prometheus-data:
+    name: week08-prometheus-data
+  grafana-data:
+    name: week08-grafana-data

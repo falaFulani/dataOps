@@ -1,0 +1,50 @@
+# Prometheus Configuration — Week 8: ML Observability
+# =====================================================
+# Scrapes the model service for both operational and ML-specific metrics.
+# Same Prometheus you run for everything else — the only difference is
+# the custom ML metrics the service exposes.
+
+global:
+  scrape_interval: 5s        # How often to scrape targets (5s for lab; 15-30s in prod)
+  evaluation_interval: 5s    # How often to evaluate alerting rules
+  scrape_timeout: 5s         # Timeout for each scrape
+
+  external_labels:
+    environment: "local-lab"
+    course: "mlops-week-08"
+
+# ---------------------------------------------------------------------------
+# Scrape Configs
+# ---------------------------------------------------------------------------
+scrape_configs:
+  # Prometheus self-monitoring (standard)
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: "prometheus"
+
+  # Model Service — the interesting one
+  # This scrapes /metrics which exposes BOTH:
+  #   - Operational: request count, latency histogram, error count
+  #   - ML-specific: prediction confidence, drift score, data quality
+  - job_name: "model-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["model-service:8000"]
+        labels:
+          service: "model-service"
+          team: "ml-platform"
+          model: "iris-classifier"
+    # In production, you'd use service discovery (kubernetes_sd_configs)
+    # instead of static_configs. But for a local lab, this is fine.
+    #
+    # Example k8s SD (for reference — you know how to do this):
+    # kubernetes_sd_configs:
+    #   - role: pod
+    #     namespaces:
+    #       names: ["ml-serving"]
+    #   relabel_configs:
+    #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+    #       action: keep
+    #       regex: true

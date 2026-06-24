@@ -1,0 +1,70 @@
+# =============================================================================
+# ML Pipeline Configuration
+# =============================================================================
+# This file separates configuration from code — same principle as Helm values,
+# GitHub Actions variables, or Ansible vars files.
+#
+# Change these values to experiment without touching pipeline logic.
+# =============================================================================
+
+# --- Data Configuration ---
+data:
+  # Using sklearn's built-in Iris dataset for simplicity
+  source: "sklearn_iris"
+  test_size: 0.2
+  random_state: 42
+
+  # Validation rules (schema enforcement)
+  validation:
+    expected_features: 4
+    expected_feature_names:
+      - "sepal_length"
+      - "sepal_width"
+      - "petal_length"
+      - "petal_width"
+    allow_nulls: false
+    # Valid ranges for each feature (min, max)
+    feature_ranges:
+      sepal_length: [4.0, 8.5]
+      sepal_width: [1.5, 5.0]
+      petal_length: [0.5, 7.5]
+      petal_width: [0.0, 3.0]
+
+# --- Model Configuration ---
+model:
+  algorithm: "random_forest"
+  parameters:
+    n_estimators: 100
+    max_depth: 10
+    min_samples_split: 2
+    min_samples_leaf: 1
+    random_state: 42
+
+# --- Evaluation Configuration ---
+evaluation:
+  # Quality gate: pipeline fails if accuracy is below this threshold
+  # This is your "test must pass" gate — same as requiring >80% code coverage
+  min_accuracy_threshold: 0.90
+
+  # Additional metrics to log (informational, not gating)
+  log_metrics:
+    - "accuracy"
+    - "precision_weighted"
+    - "recall_weighted"
+    - "f1_weighted"
+
+# --- Model Registry Configuration ---
+registry:
+  output_dir: "artifacts"
+  model_filename: "model.pkl"
+  metrics_filename: "metrics.json"
+  config_filename: "run_config.yml"
+
+# --- Pipeline Behavior ---
+pipeline:
+  # Retry configuration (handles transient failures like network/disk issues)
+  retries: 2
+  retry_delay_seconds: 5
+
+  # Logging level: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"

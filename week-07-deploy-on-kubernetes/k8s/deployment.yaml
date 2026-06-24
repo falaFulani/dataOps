@@ -1,0 +1,175 @@
+# =============================================================================
+# Model Service Deployment
+# =============================================================================
+# This is a standard k8s Deployment. You've written hundreds of these.
+# ML-specific notes are called out in comments.
+#
+# Key differences from a typical microservice deployment:
+# 1. readinessProbe initialDelaySeconds is higher (model loading takes time)
+# 2. Memory requests are higher (model artifact lives in RAM)
+# 3. terminationGracePeriodSeconds accounts for in-flight inference requests
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+  namespace: ml-serving
+  labels:
+    app: model-service
+    version: v1
+    team: ml-platform
+    component: inference
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: model-service
+      version: v1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime — important for inference availability
+  template:
+    metadata:
+      labels:
+        app: model-service
+        version: v1
+        team: ml-platform
+        component: inference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # -----------------------------------------------------------------------
+      # Anti-affinity: spread pods across nodes
+      # Same pattern you use for any HA service at the bank.
+      # -----------------------------------------------------------------------
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - model-service
+                topologyKey: kubernetes.io/hostname
+
+      # -----------------------------------------------------------------------
+      # Termination grace period: allow in-flight inference requests to complete.
+      # ML inference can be slower than typical API calls (especially for batch
+      # predictions or large models). 60s gives plenty of headroom.
+      # -----------------------------------------------------------------------
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: model-service
+          # Image from Week 5's Dockerfile — same FastAPI model service
+          image: model-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # -------------------------------------------------------------------
+          # Environment variables
+          # MODEL_VERSION tracks which model artifact is deployed.
+          # In production, this comes from your CI/CD pipeline or model registry.
+          # -------------------------------------------------------------------
+          env:
+            - name: MODEL_VERSION
+              value: "1.0.0"
+            - name: MODEL_NAME
+              value: "iris-classifier"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: WORKERS
+              value: "2"
+            # Pod identity — useful for debugging and log correlation
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          # -------------------------------------------------------------------
+          # Readiness probe
+          # ML-SPECIFIC: initialDelaySeconds is 30s because:
+          #   - Python interpreter startup: ~2-3s
+          #   - Model deserialization from disk: 5-30s (depends on model size)
+          #   - For a tiny sklearn model: ~5s total
+          #   - For a large deep learning model: could be 60-120s
+          #
+          # The /ready endpoint returns 200 only after the model is loaded
+          # into memory and ready to serve predictions.
+          # -------------------------------------------------------------------
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          # -------------------------------------------------------------------
+          # Liveness probe
+          # Standard "is the process alive?" check. Nothing ML-specific here.
+          # -------------------------------------------------------------------
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          # -------------------------------------------------------------------
+          # Startup probe (optional, useful for large models)
+          # Gives the container up to 5 minutes to start (300s).
+          # Prevents liveness probe from killing slow-starting containers.
+          # For the Iris model this is overkill, but shows the pattern.
+          # -------------------------------------------------------------------
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 30  # 30 * 10s = 300s max startup time
+
+          # -------------------------------------------------------------------
+          # Resource requests and limits
+          # ML-SPECIFIC:
+          #   - Memory request accounts for model artifact size in RAM
+          #     (Iris model: ~1MB; fraud model: ~500MB; LLM: 16GB+)
+          #   - CPU request accounts for inference computation
+          #   - For GPU models, you'd add: nvidia.com/gpu: 1
+          # -------------------------------------------------------------------
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      # -----------------------------------------------------------------------
+      # Service account — principle of least privilege, same as always
+      # -----------------------------------------------------------------------
+      serviceAccountName: model-service
+      automountServiceAccountToken: false

@@ -1,0 +1,39 @@
+# =============================================================================
+# Ingress for Model Service
+# =============================================================================
+# Standard NGINX Ingress. Nothing ML-specific.
+# Routes external traffic to the model service.
+#
+# For local development with kind, add to /etc/hosts:
+#   127.0.0.1 model.local
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: model-service-ingress
+  namespace: ml-serving
+  labels:
+    app: model-service
+    team: ml-platform
+  annotations:
+    # NGINX-specific annotations (adjust if using Traefik, HAProxy, etc.)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Rate limiting — protect inference endpoints from abuse
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: model.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: model-service
+                port:
+                  name: http

@@ -1,0 +1,267 @@
+# =============================================================================
+# ML Model Service — SLO Definitions
+# =============================================================================
+#
+# These SLOs define "what good looks like" for an ML model service.
+# They cover both traditional service health AND ML-specific quality signals.
+#
+# Philosophy:
+#   - Infrastructure SLOs keep the service running
+#   - ML SLOs keep the predictions useful
+#   - Both are required; either failing is an incident
+#
+# For Alex: You've written SLO documents before. The structure is identical.
+# The new part is the ML-specific objectives (prediction quality, drift, freshness).
+# =============================================================================
+
+service:
+  name: fraud-detection-model
+  team: ml-platform
+  tier: tier-1  # Business-critical model
+  environment: production
+
+# -----------------------------------------------------------------------------
+# SLO 1: Service Availability
+# -----------------------------------------------------------------------------
+# This is identical to any service SLO you've defined before.
+# The model endpoint must be reachable and returning valid responses.
+# -----------------------------------------------------------------------------
+slos:
+  - name: model-service-availability
+    description: >
+      The model inference endpoint returns successful responses (HTTP 2xx)
+      for valid prediction requests. Excludes scheduled maintenance windows.
+    category: availability
+    objective:
+      target: 0.999  # 99.9%
+      window: 30d    # Rolling 30-day window
+    measurement:
+      method: ratio
+      good_events: "http_requests_total{service='fraud-model', code=~'2..'}"
+      total_events: "http_requests_total{service='fraud-model', code!~'4..'}"
+      # Exclude 4xx client errors from total — client mistakes aren't our SLO
+      evaluation_interval: 1m
+    error_budget:
+      total_minutes: 43.2  # 30 days * 24h * 60m * 0.001 = 43.2 minutes
+      alerting:
+        warning:
+          burn_rate: 6      # Consuming budget 6x faster than sustainable
+          short_window: 30m
+          long_window: 6h
+        critical:
+          burn_rate: 14.4   # Consuming budget 14.4x faster → exhausted in 2 days
+          short_window: 5m
+          long_window: 1h
+    consequences:
+      budget_warning: "Investigate service health. Review recent deployments and resource utilization."
+      budget_critical: "Halt model deployments. Page on-call. Rollback if recent change caused regression."
+      budget_exhausted: "Incident declared. All non-reliability work stops. Postmortem required."
+
+  # ---------------------------------------------------------------------------
+  # SLO 2: Inference Latency
+  # ---------------------------------------------------------------------------
+  # Model inference must be fast enough for real-time decision-making.
+  # In fraud detection, every millisecond of latency is a millisecond a
+  # transaction is held. Too slow = bad customer experience or timeout fallback.
+  # ---------------------------------------------------------------------------
+  - name: model-inference-latency
+    description: >
+      99th percentile inference latency remains below 200ms for prediction
+      requests. Ensures real-time fraud scoring doesn't block transactions.
+    category: latency
+    objective:
+      target: 0.99   # 99% of requests under 200ms
+      threshold: 200  # milliseconds
+      percentile: p99
+      window: 30d
+    measurement:
+      method: threshold
+      metric: "histogram_quantile(0.99, rate(inference_duration_seconds_bucket{service='fraud-model'}[5m]))"
+      threshold_value: 0.200  # 200ms in seconds
+      evaluation_interval: 1m
+    error_budget:
+      # 1% of requests can exceed 200ms over 30 days
+      total_slow_requests_pct: 1.0
+      alerting:
+        warning:
+          burn_rate: 6
+          short_window: 30m
+          long_window: 6h
+        critical:
+          burn_rate: 14.4
+          short_window: 5m
+          long_window: 1h
+    consequences:
+      budget_warning: "Review model complexity. Check for resource contention or feature store latency."
+      budget_critical: "Consider model simplification, scaling replicas, or caching frequent predictions."
+      budget_exhausted: "Switch to fallback model (simpler/faster). Investigate root cause. Postmortem."
+
+  # ---------------------------------------------------------------------------
+  # SLO 3: Prediction Quality
+  # ---------------------------------------------------------------------------
+  # THIS IS THE NEW THING. Traditional services don't have this.
+  # A model can be 100% available, perfectly fast, and completely wrong.
+  # Prediction quality is measured against a labeled holdout set, evaluated
+  # periodically (not per-request, since real-time labels are rarely available).
+  # ---------------------------------------------------------------------------
+  - name: model-prediction-quality
+    description: >
+      Model accuracy on the holdout evaluation set remains above 0.90.
+      Evaluated hourly against the latest labeled holdout data.
+      A sustained drop below threshold indicates model degradation — likely
+      due to data drift, concept drift, or stale training data.
+    category: prediction_quality
+    objective:
+      target: 0.90   # 90% accuracy minimum
+      metric: accuracy  # Could also be F1, precision, recall depending on use case
+      window: 30d
+      # Budget: model can be below 0.90 for at most 10% of evaluation windows
+      acceptable_violation_pct: 10
+    measurement:
+      method: periodic_evaluation
+      evaluation_frequency: 1h
+      holdout_dataset: "s3://ml-data/fraud-model/holdout/latest/"
+      metrics_reported:
+        - accuracy
+        - precision
+        - recall
+        - f1_score
+        - auc_roc
+      metric_endpoint: "model_accuracy_score{model='fraud-detection', dataset='holdout'}"
+    error_budget:
+      total_hours_below_target: 72  # 720 hours * 10% = 72 hours allowed below target
+      alerting:
+        warning:
+          # Accuracy below target for 6+ consecutive evaluations (6 hours)
+          condition: "model_accuracy_score < 0.90 for 6h"
+          action: ticket
+        critical:
+          # Accuracy below target for 24+ hours OR below 0.85 at any point
+          condition: "model_accuracy_score < 0.90 for 24h OR model_accuracy_score < 0.85"
+          action: page
+    consequences:
+      budget_warning: >
+        Investigate recent drift reports. Check data pipeline for quality issues.
+        Evaluate whether scheduled retraining will address the problem.
+      budget_critical: >
+        Trigger immediate retraining pipeline. If retrained model doesn't improve,
+        rollback to last-known-good model version. Escalate to ML team lead.
+      budget_exhausted: >
+        Incident declared. Rollback to last-known-good model immediately.
+        Suspend automated retraining until root cause identified.
+        Postmortem required. Business stakeholders notified.
+
+  # ---------------------------------------------------------------------------
+  # SLO 4: Data Freshness
+  # ---------------------------------------------------------------------------
+  # ML models degrade when trained on stale data. In fraud detection, new attack
+  # patterns emerge weekly. A model trained on 6-month-old data misses new fraud
+  # vectors. This SLO ensures retraining happens on a cadence.
+  # ---------------------------------------------------------------------------
+  - name: training-data-freshness
+    description: >
+      The production model must have been trained on data no older than 30 days.
+      Ensures the model reflects recent patterns and isn't blind to new fraud
+      techniques. Tracked as time since last successful training run.
+    category: data_freshness
+    objective:
+      target: 30  # days
+      unit: days_since_last_training
+      window: continuous  # Always enforced, not windowed
+    measurement:
+      method: gauge
+      metric: "model_last_training_timestamp{model='fraud-detection'}"
+      # Calculate: (now() - last_training_timestamp) in days
+      derived_metric: "(time() - model_last_training_timestamp) / 86400"
+      evaluation_interval: 1h
+    error_budget:
+      # No tolerance — this is a hard limit for regulatory compliance
+      # But we alert progressively as the deadline approaches
+      max_age_days: 30
+      alerting:
+        info:
+          condition: "training_age_days > 21"  # 70% of budget consumed
+          action: dashboard_highlight
+        warning:
+          condition: "training_age_days > 25"  # 5 days remaining
+          action: ticket
+        critical:
+          condition: "training_age_days > 28"  # 2 days remaining
+          action: page
+        breach:
+          condition: "training_age_days > 30"  # SLO violated
+          action: incident
+    consequences:
+      budget_warning: >
+        Verify retraining pipeline is scheduled. Check for blocked/failed training runs.
+        Ensure fresh labeled data is available in the training dataset.
+      budget_critical: >
+        Trigger manual retraining immediately. If pipeline is broken, escalate to
+        ML platform team. Begin drafting risk acceptance if retraining will exceed deadline.
+      budget_exhausted: >
+        Model is operating on stale data — regulatory risk. Notify compliance.
+        Immediate retraining required. If not possible, evaluate switching to
+        rule-based fallback until model is refreshed.
+
+  # ---------------------------------------------------------------------------
+  # SLO 5: Feature Drift
+  # ---------------------------------------------------------------------------
+  # Drift is the leading indicator of prediction quality degradation.
+  # If input features drift significantly from training distribution, the model
+  # is operating outside its learned boundaries — predictions become unreliable.
+  # ---------------------------------------------------------------------------
+  - name: feature-drift-score
+    description: >
+      Population Stability Index (PSI) or Kolmogorov-Smirnov (KS) statistic
+      for monitored features must remain below 0.2. Drift above this threshold
+      indicates the production data distribution has shifted materially from
+      training data. This is a LEADING indicator — it predicts quality drops
+      before they appear in accuracy metrics.
+    category: drift
+    objective:
+      target: 0.2   # Maximum acceptable drift score (PSI or KS)
+      aggregation: max  # Alert on the worst-drifting feature
+      window: 24h   # Measured over rolling 24-hour windows
+    measurement:
+      method: statistical_test
+      tests:
+        numerical_features: "kolmogorov_smirnov"
+        categorical_features: "population_stability_index"
+      reference_dataset: "s3://ml-data/fraud-model/reference/training_distribution.parquet"
+      metric: "feature_drift_score{model='fraud-detection'}"
+      evaluation_interval: 1h
+      monitored_features:
+        - transaction_amount
+        - transaction_frequency_24h
+        - merchant_category_risk_score
+        - device_fingerprint_confidence
+        - geo_distance_from_home
+        - time_since_last_transaction
+    error_budget:
+      # Drift is tolerated for short periods (could be legitimate distribution shift)
+      # Budget: drift can exceed threshold for at most 10% of time in window
+      acceptable_violation_pct: 10
+      total_hours_above_threshold: 72  # 30 days * 24h * 10% = 72 hours
+      alerting:
+        warning:
+          # Single feature drifting above 0.2 for 2+ hours
+          condition: "max(feature_drift_score) > 0.2 for 2h"
+          action: ticket
+        critical:
+          # Multiple features drifting OR single feature extremely high (>0.4)
+          condition: "count(feature_drift_score > 0.2) >= 3 for 1h OR max(feature_drift_score) > 0.4"
+          action: page
+    consequences:
+      budget_warning: >
+        Review drift report. Identify drifting features. Check upstream data
+        pipelines for changes. Determine if drift is expected (seasonal, new product
+        launch) or unexpected (data pipeline bug, schema change).
+      budget_critical: >
+        Multiple features drifting = systemic issue. Check data pipeline health.
+        Compare current data against training distribution. If drift is due to
+        real-world change: trigger retraining on fresh data. If drift is due to
+        bug: fix pipeline, retrain on corrected data.
+      budget_exhausted: >
+        Model operating far outside training distribution for extended period.
+        Predictions unreliable. Consider rollback to rule-based system or
+        last-known-good model while investigating. Postmortem required.
