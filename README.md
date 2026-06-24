@@ -1,12 +1,75 @@
-# MLOps Engineering Course — Tailored for Alex
+# MLOps Engineering Course
 
-A hands-on course designed for an engineer who already owns
-**platform engineering, SLOs, incident governance, Kubernetes, and team leadership**.
-It deliberately skips general DevOps/ops fundamentals you already have and
-front-loads the **ML-specific layer** that's new to you.
+A comprehensive, hands-on MLOps engineering course designed for an experienced
+platform/DevOps engineer transitioning into MLOps. Covers the full stack: ML
+fundamentals, production serving, CI/CD for models, infrastructure as code,
+observability, SLOs, governance, and end-to-end automation.
 
 **Goal:** Become a complete MLOps Engineer — able to build, deploy, monitor, and
-govern ML systems end-to-end with production-grade engineering quality. Not just
+govern ML systems end-to-end with production-grade engineering quality.
+
+---
+
+## Quick Start
+
+```bash
+# Clone the repo
+git clone https://github.com/falaFulani/dataOps.git
+cd dataOps
+
+# Start with Week 1
+cd week-01-how-ml-works
+./setup.sh
+source venv/bin/activate
+jupyter notebook lab-train-simple-model.ipynb
+```
+
+Each week has its own directory with:
+- `README.md` — concepts, mapping to ops experience, resources
+- Lab notebook or scripts — hands-on exercises
+- `setup.sh` — environment setup (one command)
+
+---
+
+## Prerequisites
+
+This course assumes you already have:
+- **Linux/macOS command line** fluency
+- **Docker & Kubernetes** experience (deployments, services, Helm)
+- **CI/CD** experience (GitHub Actions, Jenkins, or similar)
+- **Python** working knowledge (not expert, but comfortable)
+- **Monitoring** experience (Prometheus, Grafana, alerting)
+- **Cloud** experience (AWS, GCP, or Azure)
+
+If you're missing any of these, the course will still work — you'll just spend more time on Weeks 5 and 7.
+
+---
+
+## How to use this course
+
+- Each week has: **concepts**, **hands-on lab**, and a **"connect to your ops background"** note.
+- Time budget: ~8–10 hrs/week. Compress to 6 weeks by doubling up if you have time.
+- Track your progress with the checkboxes.
+- The capstone (Weeks 11–12) is portfolio-worthy — put it on your CV/GitHub.
+- Every week builds on the previous. Do them in order.
+
+**Legend:** 🧠 Concept · 🛠️ Lab · 🔗 Maps to your existing skills · 📚 Resource
+
+---
+
+## Course Structure at a Glance
+
+| Phase | Weeks | Focus | Outcome |
+|-------|-------|-------|---------|
+| 0 | Pre-work | Orientation | Vocabulary familiarity |
+| 1 | 1–3 | ML Foundations | Understand what you're operating |
+| 2 | 4–7 | MLOps Platform | Build the tooling (serve, version, deploy, CI/CD) |
+| 3 | 8–10 | Monitoring & Governance | Observability, SLOs, incident response |
+| 4 | 11–12 | Capstone | Fully automated end-to-end system |
+| 5 | 13–16 | High Priority Extensions | Feature stores, LLMOps, chaos engineering |
+| 6 | 17–21 | Deeper Platform Skills | Cloud ML, explainability, A/B testing |
+| 7 | 22–27 | Advanced Topics | Deep learning ops, NLP, ethics, team design |
+| 8 | Pick | Specialization Tracks | Based on career direction | Not just
 the operational side, but the full build-and-automate side too.
 
 ---
@@ -32,10 +95,10 @@ Skim these so the vocabulary stops feeling foreign. Don't study deeply yet.
 
 ---
 
-## PHASE 1 — ML FOUNDATIONS FOR OPERATORS (Weeks 1–3)
+## PHASE 1 — ML FOUNDATIONS (Weeks 1–3)
 
 Enough ML to be dangerous and credible. You are NOT becoming a data scientist —
-you're learning what the team operates so you can support and lead it.
+you're learning what ML systems do so you can build and operate the infrastructure around them.
 
 ### Week 1 — How ML actually works (just enough)
 - 🧠 Supervised vs unsupervised learning; training vs inference; what a "model" and a "feature" really are
@@ -68,7 +131,7 @@ you're learning what the team operates so you can support and lead it.
 
 ## PHASE 2 — THE MLOps PLATFORM (Weeks 4–7)
 
-Now you build the operational tooling. This is your home turf, extended.
+Now you build the platform. Serving, versioning, CI/CD, infrastructure as code, and deployment automation.
 
 ### Week 4 — Experiment tracking & model registry
 - 🧠 Why model versioning matters; what a model registry is; reproducibility
@@ -114,7 +177,7 @@ Now you build the operational tooling. This is your home turf, extended.
 
 ## PHASE 3 — MONITORING, RELIABILITY & GOVERNANCE (Weeks 8–10)
 
-The heart of the **support lead** role. Lean hard on your SLO and incident experience here.
+The full observability stack — from distributed tracing to SLO burn-rate alerting to incident governance.
 
 ### Week 8 — ML observability & observability engineering
 - 🧠 Two monitoring layers: operational (latency/errors/throughput) + ML-specific (drift/accuracy/data quality)
@@ -483,16 +546,12 @@ These are deeper dives you pursue based on where your career goes.
 
 ---
 
-## A note on sequencing for your interview
+## Sequencing Guide
 
-You don't need to finish this course before the call. For the **introductory call next week**,
-Phase 0 + Week 3 concepts (the drift family) are enough to sound informed.
-The full course is for genuinely *becoming* strong in MLOps over the next 3 months.
-
-**Phases 1–4 (Weeks 1–12):** Core competency. Complete this in 12 weeks to be job-ready.  
-**Phase 5 (Weeks 13–16):** Do these in your first month on the job. Directly relevant to CloudFactory.  
-**Phase 6 (Weeks 17–21):** Do these in months 2–3. Deepens your platform leadership.  
-**Phase 7 (Weeks 22–27):** Long-term growth. Pick based on what the team needs.  
+**Phases 1–4 (Weeks 1–12):** Core competency. Complete this to be job-ready as an MLOps Engineer.  
+**Phase 5 (Weeks 13–16):** High-impact topics for immediate career growth.  
+**Phase 6 (Weeks 17–21):** Deepens your platform and architecture skills.  
+**Phase 7 (Weeks 22–27):** Long-term growth into senior/staff-level MLOps.  
 **Phase 8:** Career specialization. Choose a track based on where you want to grow.
 
-**Total curriculum:** ~27 weeks (6–7 months) for comprehensive MLOps expertise, from operational fluency to strategic architecture.
+**Total curriculum:** ~27 weeks (6–7 months) for comprehensive MLOps expertise, from foundational to architecture-level.
