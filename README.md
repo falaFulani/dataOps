@@ -1,13 +1,13 @@
 # MLOps Engineering Course — Tailored for Alex
 
-A 12-week, hands-on course designed for an engineer who already owns
+A hands-on course designed for an engineer who already owns
 **platform engineering, SLOs, incident governance, Kubernetes, and team leadership**.
 It deliberately skips general DevOps/ops fundamentals you already have and
 front-loads the **ML-specific layer** that's new to you.
 
-**Goal:** Become operationally fluent in MLOps — enough to lead an MLOps support
-team, harden ML alerting, and own ML incident response — then deepen into the
-build side for long-term career growth.
+**Goal:** Become a complete MLOps Engineer — able to build, deploy, monitor, and
+govern ML systems end-to-end with production-grade engineering quality. Not just
+the operational side, but the full build-and-automate side too.
 
 ---
 
@@ -41,14 +41,19 @@ you're learning what the team operates so you can support and lead it.
 - 🧠 Supervised vs unsupervised learning; training vs inference; what a "model" and a "feature" really are
 - 🧠 The ML lifecycle end-to-end: data → train → evaluate → deploy → monitor → retrain
 - 🧠 Why ML fails *silently* (the core operator insight)
+- 🧠 **Python project structure for ML:** pyproject.toml, src layout, type hints, dependency management with Poetry/uv
 - 🛠️ Train a simple model (scikit-learn) on a public dataset in a notebook. Don't optimize it — just feel the workflow: load data, fit, predict, measure accuracy.
+- 🛠️ **Set up a proper Python project:** pyproject.toml, ruff for linting, mypy for type checking, pytest skeleton. All future weeks use this structure.
 - 🔗 Compare this lifecycle to a software release lifecycle you already run.
 - 📚 "Machine Learning for Everybody" (freeCodeCamp, video) or Andrew Ng's intro — watch at 1.5x, skip the math derivations.
 
 ### Week 2 — Data is the product
 - 🧠 Data quality, schema validation, feature engineering, train/test splits
 - 🧠 Training-serving skew (why prod data processing must match training)
+- 🧠 **Data storage patterns for ML:** Parquet vs CSV, partitioning strategies, data lake architecture (Delta Lake, Iceberg)
+- 🧠 **Object storage for artifacts:** S3/GCS bucket design, model artifact storage patterns, versioning
 - 🛠️ Use a data validation tool (Great Expectations or `pandas` checks) to write data quality rules: no nulls, value ranges, schema match. This is your future alerting layer.
+- 🛠️ **Convert your dataset to Parquet.** Implement partitioned storage. Write data contract tests (pytest) that fail if schema changes.
 - 🔗 This is the ML version of input validation and health checks you already design.
 
 ### Week 3 — Model evaluation & the drift family
@@ -72,20 +77,38 @@ Now you build the operational tooling. This is your home turf, extended.
 
 ### Week 5 — Model serving & deployment patterns
 - 🧠 Real-time (API) vs batch inference; canary, shadow, blue-green for models
+- 🧠 **Containerization depth for ML:** GPU-enabled Docker images (CUDA bases), multi-model containers, model artifact caching in layers, image size optimization for large models
+- 🧠 **API security for ML:** authentication/authorization on prediction endpoints, rate limiting, input sanitization, request validation
+- 🧠 **Performance engineering:** request batching, prediction caching for common inputs, async inference patterns
 - 🛠️ Wrap your Week 1 model in a **FastAPI** service, containerize it with Docker, expose a `/predict` endpoint and a `/health` check.
-- 🔗 You already know Docker and k8s. This is deploying a slightly unusual service. Reuse your instincts.
+- 🛠️ **Implement auth** (API key or JWT) on the prediction endpoint. Add rate limiting middleware.
+- 🛠️ **Implement request batching:** collect requests over a 50ms window, predict in one batch, return individual responses.
+- 🛠️ **Load test** your service with **Locust** or **k6**. Profile latency under load. Identify bottlenecks.
+- 🛠️ **Optimize your Docker image:** multi-stage build, pin base image, non-root user, minimize layers. Target < 500MB.
+- 🔗 You already know Docker and k8s. This is deploying a slightly unusual service with ML-specific optimization challenges.
 
-### Week 6 — Pipelines & orchestration
+### Week 6 — Pipelines, orchestration & CI/CD for ML
 - 🧠 What an ML pipeline orchestrator does; DAGs; scheduled retraining
+- 🧠 **CI/CD for ML (Continuous Training):** GitHub Actions / GitLab CI for model training triggers, automated model quality gates in CI, PR-based model promotion
+- 🧠 **The CT pattern:** data arrives → triggers training → evaluation gates → auto-promote or await human approval
+- 🧠 **Testing in CI:** model smoke tests, performance regression checks, drift checks on PR
 - 🛠️ Build a simple pipeline that chains: validate data → train → evaluate → register. Use a lightweight tool (Prefect or ZenML; or Kubeflow Pipelines if you want the k8s-native one).
-- 🔗 This is workflow automation / CI-for-models. Same governance instincts as your deploy pipelines.
+- 🛠️ **Write a GitHub Actions workflow** that: (1) runs model tests on PR, (2) triggers retraining on merge to main, (3) gates promotion on evaluation metrics.
+- 🛠️ **Write pytest tests for your model:** test prediction shape, test input validation, test that accuracy doesn't regress below threshold, test inference latency.
+- 🔗 This is workflow automation / CI-for-models. Same governance instincts as your deploy pipelines, but now the "build" step is training.
 
-### Week 7 — Deploy on Kubernetes (your strength)
+### Week 7 — Deploy on Kubernetes & Infrastructure as Code (your strength)
 - 🧠 Model serving on k8s; KServe / Seldon Core basics; autoscaling inference
+- 🧠 **Infrastructure as Code for ML:** Terraform modules for ML resources (model endpoints, training clusters, feature stores), Helm charts for the ML platform stack
+- 🧠 **Networking for ML services:** service mesh (Istio/Linkerd) for model-to-model communication, network policies for training jobs (restricting data access, egress control)
+- 🧠 **GitOps for model deployments:** ArgoCD/Flux watching model registry → auto-deploying promoted models
 - 🛠️ Deploy your FastAPI model to a local k8s cluster (kind/minikube). Add a readiness probe, resource limits, and an HPA.
-- 🔗 This week should feel easy and confidence-building — it's mostly k8s with an ML payload.
+- 🛠️ **Write a Helm chart** for your model service (templates for deployment, service, HPA, ingress). Parameterize model version and resource limits.
+- 🛠️ **Write Terraform** (or Pulumi) to provision the supporting infrastructure: a namespace, service account, resource quotas, network policies.
+- 🛠️ **Configure network policies:** training pods can access data store but not internet; serving pods can accept inbound but not access training data directly.
+- 🔗 This week should feel easy and confidence-building — it's your core k8s/IaC expertise applied to an ML payload.
 
-**Milestone 2:** You have a model that's trained, versioned, served on k8s, and reproducible. Push it to GitHub.
+**Milestone 2:** You have a model that's trained, versioned, served on k8s (via Helm), reproducible, load-tested, secured with auth, and deployed via CI/CD. Push it to GitHub.
 
 ---
 
@@ -93,10 +116,17 @@ Now you build the operational tooling. This is your home turf, extended.
 
 The heart of the **support lead** role. Lean hard on your SLO and incident experience here.
 
-### Week 8 — ML observability
+### Week 8 — ML observability & observability engineering
 - 🧠 Two monitoring layers: operational (latency/errors/throughput) + ML-specific (drift/accuracy/data quality)
+- 🧠 **Structured logging for ML:** prediction logs for offline analysis (input features, output, confidence, latency per request)
+- 🧠 **Distributed tracing for ML pipelines:** OpenTelemetry spans across training pipeline steps, tracing a prediction from request to feature store to model to response
+- 🧠 **Log-based metrics:** extracting Prometheus metrics from structured prediction logs (without instrumenting code)
+- 🧠 **Alerting-as-code:** managing alert rules via Terraform/Jsonnet/YAML in git, not via Grafana UI clicks
 - 🛠️ Instrument your served model with **Prometheus + Grafana** for operational metrics, and **Evidently** (or Arize/WhyLabs free tier) for drift/quality. Build one dashboard showing both layers.
-- 🔗 You already build SLO dashboards. Add the ML row to the dashboard you'd build anyway.
+- 🛠️ **Add OpenTelemetry tracing** to your model service. Trace a request from ingress → feature lookup → model inference → response. View in Jaeger.
+- 🛠️ **Implement structured prediction logging:** every prediction writes a JSON log line with request_id, features, prediction, confidence, latency. Query these logs to compute offline accuracy.
+- 🛠️ **Define all alerts as code:** write a `alerts.yml` (PrometheusRule) or Jsonnet file. Deploy via CI — no manual alert creation.
+- 🔗 You already build SLO dashboards. Now add tracing, structured logging, and alerting-as-code for a complete observability stack.
 
 ### Week 9 — ML SLOs & alerting frameworks
 - 🧠 Defining SLOs for ML systems (availability + prediction-quality SLOs); error budgets for models; alerting on drift burn-rate, not noise
@@ -114,25 +144,25 @@ The heart of the **support lead** role. Lean hard on your SLO and incident exper
 
 ## PHASE 4 — CAPSTONE (Weeks 11–12)
 
-Build one end-to-end project that demonstrates the whole loop. Put it on GitHub
-with a clear README — this becomes interview evidence.
+Build one end-to-end project that demonstrates the whole loop **with full automation**. Put it on GitHub with a clear README — this becomes interview evidence.
 
 ### The capstone project
-Build a small but complete MLOps system:
+Build a small but complete MLOps system — **zero-touch from drift detection to redeployment:**
 1. A trained, versioned model (MLflow)
-2. Served via API, containerized, deployed on k8s
-3. A retraining pipeline (orchestrated)
-4. Full monitoring: operational + drift/quality dashboards
-5. Defined SLOs + alerting
-6. An incident runbook + postmortem template
-7. A README explaining the architecture and operational design decisions
+2. Served via API, containerized, deployed on k8s (with Helm chart)
+3. A retraining pipeline (orchestrated, triggered by CI or drift alert)
+4. **CI/CD pipeline** (GitHub Actions): test on PR, train on merge, gate on metrics, promote automatically
+5. Full monitoring: operational + drift/quality dashboards + distributed tracing
+6. Defined SLOs + alerting-as-code + **auto-rollback on SLO breach**
+7. **Self-healing loop:** drift detected → retrain triggered → evaluation gates → auto-promote (or rollback if worse)
+8. An incident runbook + postmortem template
+9. **Infrastructure as Code:** Terraform/Helm for all infrastructure, deployed via GitOps
+10. A README explaining the architecture and operational design decisions
 
-- [ ] Week 11 — Build and integrate the pieces from Phases 2–3 into one repo
-- [ ] Week 12 — Documentation, architecture diagram, runbook, and a short demo video/walkthrough
+- [ ] Week 11 — Build and integrate the pieces from Phases 2–3 into one repo. Wire the full automation loop.
+- [ ] Week 12 — Documentation, architecture diagram, runbook, load testing results, and a short demo video/walkthrough
 
-**Capstone framing for interviews:** "I built an end-to-end MLOps system focused on
-the operational layer — versioning, serving, monitoring, SLOs, and incident response —
-to ground my reliability and governance experience in ML-specific tooling."
+**Capstone framing for interviews:** "I built a fully automated MLOps system — from drift detection through retraining to production deployment — with CI/CD, infrastructure-as-code, self-healing, and observability. Zero manual steps in the happy path."
 
 ---
 
@@ -341,12 +371,13 @@ These are deeper dives you pursue based on where your career goes.
 - 🛠️ Build a streaming feature pipeline with **Kafka + Python** that computes transaction velocity in real-time and feeds your model.
 - 📚 [Kafka docs](https://kafka.apache.org/) · [dbt for ML features](https://docs.getdbt.com/)
 
-### Track B — GitOps for ML
-- 🧠 Declarative model deployment with ArgoCD/Flux
-- 🧠 Pull-based model promotion through environments
-- 🧠 Infrastructure-as-code for ML platforms (Terraform + k8s)
-- 🛠️ Set up **ArgoCD** to declaratively manage your model deployment. Push a new model version via git → watch it deploy.
-- 📚 [ArgoCD docs](https://argo-cd.readthedocs.io/) · [GitOps for ML (MLOps Community)](https://mlops.community/)
+### Track B — End-to-End Automation Engineering
+- 🧠 Event-driven ML architectures: data arrives → triggers training → triggers deploy
+- 🧠 Self-healing patterns: auto-rollback, auto-scale, auto-retrain
+- 🧠 Automated model deprecation: stale/underperforming models retire themselves
+- 🧠 Zero-downtime model swaps with validation gates
+- 🛠️ Build a fully **event-driven pipeline**: new data in S3 → triggers Prefect → train → evaluate → promote → deploy. No human touch.
+- 📚 [Event-Driven Architecture (Martin Fowler)](https://martinfowler.com/articles/201701-event-driven.html) · [KEDA event-driven autoscaling](https://keda.sh/)
 
 ### Track C — Data Governance & Compliance Platform
 - 🧠 Enterprise data catalog: Apache Atlas, Amundsen, DataHub
@@ -371,13 +402,25 @@ These are deeper dives you pursue based on where your career goes.
 | Category | Tool(s) | Why | Phase |
 |---|---|---|---|
 | ML basics | scikit-learn, pandas, Jupyter | Feel the workflow | 1 |
+| Python engineering | pyproject.toml, ruff, mypy, pytest, Poetry/uv | Production-quality ML code | 1 (all weeks) |
 | Data validation | Great Expectations / Evidently | Future data-quality alerting | 1 |
+| Data storage | Parquet, Delta Lake, S3/GCS | ML data patterns | 1 |
 | Drift monitoring | Evidently AI (free), Arize/WhyLabs | Core support-lead skill | 1, 3 |
 | Experiment tracking / registry | MLflow | Versioning + rollback | 2 |
 | Serving | FastAPI + Docker | Wrap models as services | 2 |
+| API security | JWT/API keys, rate limiting | Production auth for ML endpoints | 2 |
+| Load testing | Locust / k6 | Performance validation | 2 |
+| Performance | Request batching, prediction caching | Inference optimization | 2 |
+| CI/CD for ML | GitHub Actions | Continuous Training pipeline | 2 |
 | Orchestration | Prefect / ZenML / Kubeflow | Pipelines + retraining | 2 |
+| Containerization | Multi-stage Docker, CUDA images | ML container optimization | 2 |
+| IaC for ML | Terraform / Helm | ML infrastructure provisioning | 2 |
 | Serving on k8s | KServe / Seldon Core | Your k8s strength | 2 |
-| Observability | Prometheus + Grafana | Your SLO strength + ML layer | 3 |
+| Networking | Istio, NetworkPolicies | ML service mesh + access control | 2 |
+| GitOps | ArgoCD / Flux | Declarative model deployment | 2 |
+| Observability | Prometheus + Grafana + OpenTelemetry + Jaeger | Full observability stack | 3 |
+| Structured logging | JSON logs, log-based metrics | Offline prediction analysis | 3 |
+| Alerting-as-code | PrometheusRule YAML, Jsonnet | Git-managed alerting | 3 |
 | Data labeling | Label Studio / Prodigy | CloudFactory's domain | 5 |
 | Feature stores | Feast / Tecton | Eliminate training-serving skew | 5 |
 | LLM/GenAI | LangChain / LlamaIndex / ChromaDB | LLMOps — fastest-growing area | 5 |
@@ -393,7 +436,6 @@ These are deeper dives you pursue based on where your career goes.
 | Fairness | Fairlearn / AIF360 | Bias detection and mitigation | 7 |
 | Synthetic data | SDV / Great Expectations | Testing and privacy | 7 |
 | Streaming | Kafka / Flink | Real-time features | 8 |
-| GitOps for ML | ArgoCD / Flux | Declarative model deployment | 8 |
 | Data catalog | DataHub / Amundsen | Enterprise data governance | 8 |
 | ML security | ART / OWASP ML Top 10 | Adversarial robustness | 8 |
 
